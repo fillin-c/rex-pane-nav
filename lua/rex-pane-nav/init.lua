@@ -9,6 +9,8 @@ end
 
 function M.navigate(key)
   local win = vim.api.nvim_get_current_win()
+  -- from a float (lazygit, pickers) wincmd moves the windows behind it
+  if vim.api.nvim_win_get_config(win).relative ~= "" then return end
   vim.cmd.wincmd(key)
   if vim.api.nvim_get_current_win() == win then
     rex_edge(KEYS[key])
