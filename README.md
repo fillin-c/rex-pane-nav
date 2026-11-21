@@ -57,4 +57,4 @@ end
 
 ## License
 
-MIT
+[0BSD](LICENSE): use, copy and change it freely, with no attribution needed.
