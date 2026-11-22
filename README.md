@@ -1,16 +1,16 @@
 # rex-pane-nav
 
-Move between Neovim windows, [Rex](https://www.superlogical.com/rex) panes and
-Rex tabs with one set of keys: `shift+cmd+h/j/k/l` by default.
+Move between [Rex](https://www.superlogical.com/rex) panes, Rex tabs and
+Neovim windows with one set of keys: `shift+cmd+h/j/k/l` by default.
 
-- In a Neovim pane, the key is sent to Neovim as `ctrl+h/j/k/l`. Neovim moves
-  between its own windows, and at its edge hands off to Rex.
-- In any other pane (a shell, Claude Code, …), the key moves between Rex panes.
+- In a pane (a shell, Claude Code, …), the key moves between Rex panes.
   `ctrl+h/j/k/l` stays untouched there.
 - At the outer edge along the tab bar, it moves to the next tab, and past the
   last tab to the next session, landing on the pane at the side it comes in
   from. After this Mac's sessions come those of your other hosts; hosts that
   can't be reached are skipped.
+- In a Neovim pane, the key is sent to Neovim as `ctrl+h/j/k/l`. Neovim moves
+  between its own windows, and at its edge hands off to Rex.
 - In a floating Neovim window (lazygit, a picker), it does nothing until you
   close the float.
 
