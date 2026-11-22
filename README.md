@@ -85,6 +85,13 @@ for _, key in ipairs({ "h", "j", "k", "l" }) do
 end
 ```
 
+Some plugins map these keys in their own buffers, and those maps win there.
+Turn them off in that plugin. For [oil.nvim](https://github.com/stevearc/oil.nvim):
+
+```lua
+opts = { keymaps = { ["<C-h>"] = false, ["<C-l>"] = false } }
+```
+
 ### Update
 
 `git -C ~/.local/share/rex-pane-nav pull`, or `nix flake update rex-pane-nav`
