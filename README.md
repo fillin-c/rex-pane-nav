@@ -99,6 +99,10 @@ opts = { keymaps = { ["<C-h>"] = false, ["<C-l>"] = false } }
 `git -C ~/.local/share/rex-pane-nav pull`, or `nix flake update rex-pane-nav`
 and switch. Then `rex config reload` and restart Neovim.
 
+## Development
+
+`nvim -l tests/run.lua` runs the tests. They need only Neovim 0.10 or later.
+
 ## License
 
 [0BSD](LICENSE): use, copy and change it freely, with no attribution needed.

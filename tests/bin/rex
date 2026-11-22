@@ -1,0 +1,2 @@
+#!/bin/sh
+echo "$@" >> "$REX_STUB_LOG"
