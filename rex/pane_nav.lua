@@ -129,44 +129,59 @@ local function remote_sessions(bin)
   return out
 end
 
-local function connected_client(bin, host, match)
-  for _, c in ipairs((rex_json(bin, host, "client", "ls", "--json") or {}).clients or {}) do
-    if c.connection_state == "connected" and match(c) then return c end
-  end
-end
-
--- The app reaches each host through a client of its own there, under the same label
-local function select_via(bin, ctx, host, id, window_id)
-  local me = connected_client(bin, nil, function(c) return c.client_id == ctx.client_id end)
-  local label = me and me.info and me.info.label
-  local there = label and connected_client(bin, host, function(c) return c.info and c.info.label == label end)
-  if not there then return false end
-  return rex_json(bin, host, "api", "call", "client.perform", rex.json.encode{
-    client_id = there.client_id, action = "session.select", args = { session_id = id, window_id = window_id },
-  }) ~= nil
-end
+local LABELS, PEERS = {}, {}
 
 local function move(ctx, dir, opts, ops)
   local tabs = type(opts.tabs) == "function" and opts.tabs() or opts.tabs
   local step = TAB_STEP[tabs] and TAB_STEP[tabs][dir]
+
   -- host nil is this Mac's server. A key in a session on another host sets ctx.server and
-  -- sends rex.call there; rex.session.view only sees the session the key came from
-  local function view(host, id)
-    if not host and id == ctx.session_id then return rex.session.view{ session_id = id } end
-    return rex_json(opts.rex, host, "api", "call", "session.view", rex.json.encode{ session_id = id })
-  end
-  local function enter(host, id, w)
-    local b = entry_block(w, dir)
-    if b and not host and id == ctx.session_id then
-      rex.session.focus_block{ session_id = id, block_id = b }
-    elseif b then
-      rex_json(opts.rex, host, "api", "call", "session.focus_block", rex.json.encode{ session_id = id, block_id = b })
+  -- sends rex.call there over the open connection; any other host costs a CLI run
+  local function call(host, method, args)
+    if host == ctx.server then
+      local ok, res = pcall(rex.call, method, args)
+      if ok and res then return res end
     end
-    if not host and not ctx.server then return ops.select(ctx, id, w and w.window_id) or true end
-    return select_via(opts.rex, ctx, host, id, w and w.window_id)
+    return rex_json(opts.rex, host, "api", "call", method, next(args) and rex.json.encode(args) or "{}")
   end
 
-  local v = view(ctx.server, ctx.session_id)
+  -- The app reaches each host through a client of its own there, under the same label
+  local function peer(host, label)
+    local key = (host or "") .. "\0" .. label
+    if not PEERS[key] then
+      for _, c in ipairs((call(host, "client.list", {}) or {}).clients or {}) do
+        if c.connection_state == "connected" and c.info and c.info.label == label then PEERS[key] = c.client_id end
+      end
+    end
+    return PEERS[key], key
+  end
+
+  local function select_via(host, id, window_id)
+    if LABELS[ctx.client_id] == nil then
+      local me = rex_json(opts.rex, nil, "api", "call", "client.inspect", rex.json.encode{ client_id = ctx.client_id })
+      LABELS[ctx.client_id] = me and me.client and me.client.info and me.client.info.label or false
+    end
+    local label = LABELS[ctx.client_id]
+    if not label then return false end
+    for _ = 1, 2 do
+      local client_id, key = peer(host, label)
+      if not client_id then return false end
+      if call(host, "client.perform", { client_id = client_id, action = "session.select", args = { session_id = id, window_id = window_id } }) then
+        return true
+      end
+      PEERS[key] = nil
+    end
+    return false
+  end
+
+  local function enter(host, id, w)
+    local b = entry_block(w, dir)
+    if b then call(host, "session.focus_block", { session_id = id, block_id = b }) end
+    if not host and not ctx.server then return ops.select(ctx, id, w and w.window_id) or true end
+    return select_via(host, id, w and w.window_id)
+  end
+
+  local v = call(ctx.server, "session.view", { session_id = ctx.session_id })
   if not (step and at_edge(v, ctx.block_id, dir)) then
     return ops.focus(ctx, dir, opts.wrap)
   end
@@ -179,24 +194,24 @@ local function move(ctx, dir, opts, ops)
     end
   end
 
-  local mine
-  if ctx.server then mine = rex_json(opts.rex, nil, "api", "call", "session.list", "{}") else mine = rex.call("session.list", {}) end
-  local all = (mine or {}).sessions or {}
-  local here
-  for n, s in ipairs(all) do
-    if not ctx.server and s.session_id == ctx.session_id then here = n end
+  local function index(list)
+    for n, s in ipairs(list) do
+      if s.host == ctx.server and s.session_id == ctx.session_id then return n end
+    end
   end
+  local all = (call(ctx.server, "session.list", {}) or {}).sessions or {}
+  for _, s in ipairs(all) do s.host = ctx.server end
+  local here = index(all)
   if not (here and all[here + step]) then
     local rs = remote_sessions(opts.rex)
     if not rs then return ops.session(ctx, step) end
-    for _, s in ipairs(rs) do
-      all[#all + 1] = s
-      if s.host == ctx.server and s.session_id == ctx.session_id then here = #all end
-    end
+    if ctx.server then all = (call(nil, "session.list", {}) or {}).sessions or {} end
+    for _, s in ipairs(rs) do all[#all + 1] = s end
+    here = index(all)
   end
   if not here then return ops.session(ctx, step) end
   local t = all[here + step] or all[step > 0 and 1 or #all]
-  local tw = (view(t.host, t.session_id) or {}).windows or {}
+  local tw = (call(t.host, "session.view", { session_id = t.session_id }) or {}).windows or {}
   if not enter(t.host, t.session_id, tw[step > 0 and 1 or #tw]) then ops.session(ctx, step) end
 end
 
