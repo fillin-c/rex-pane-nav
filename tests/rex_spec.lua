@@ -90,4 +90,28 @@ return function(test, eq, root)
   test("past the last session without the CLI it asks the app for the next session", function()
     eq(load().press("pane_nav_right", "b5", "s2"), { { "session.next", {} } })
   end)
+
+  test("a failed lookup of the app's label is tried again on the next key", function()
+    local inspects = 0
+    local env = load({
+      exec = function(argv)
+        if argv[2] == "hosts" then return { hosts = { { label = "box", status = "reachable" } } } end
+        local method = argv[#argv - 1]
+        if method == "session.list" then return { sessions = { { session_id = "r1" } } } end
+        if method == "session.view" then return { windows = { tab("w9", pane("b9", 0, 1)) } } end
+        if method == "client.inspect" then
+          inspects = inspects + 1
+          return inspects > 1 and { client = { info = { label = "mac" } } } or nil
+        end
+        if method == "client.list" then
+          return { clients = { { client_id = "p1", connection_state = "connected", info = { label = "mac" } } } }
+        end
+        return {}
+      end,
+    })
+    eq(env.press("pane_nav_right", "b5", "s2"), { { "session.next", {} } })
+    eq(env.press("pane_nav_right", "b5", "s2"), {})
+    local last = env.execs[#env.execs]
+    eq({ last[2], last[3], last[#last - 1] }, { "-S", "box", "client.perform" })
+  end)
 end

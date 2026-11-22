@@ -157,9 +157,9 @@ local function move(ctx, dir, opts, ops)
   end
 
   local function select_via(host, id, window_id)
-    if LABELS[ctx.client_id] == nil then
+    if not LABELS[ctx.client_id] then
       local me = rex_json(opts.rex, nil, "api", "call", "client.inspect", rex.json.encode{ client_id = ctx.client_id })
-      LABELS[ctx.client_id] = me and me.client and me.client.info and me.client.info.label or false
+      LABELS[ctx.client_id] = me and me.client and me.client.info and me.client.info.label
     end
     local label = LABELS[ctx.client_id]
     if not label then return false end
