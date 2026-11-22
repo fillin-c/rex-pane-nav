@@ -21,7 +21,11 @@ function M.setup()
   if (vim.env.REX_SESSION or "") == "" or (vim.env.REX_BLOCK or "") == "" then return end
   for key, dir in pairs(KEYS) do
     local desc = "Navigate " .. dir .. " through Neovim and Rex"
-    vim.keymap.set({ "n", "t" }, "<C-" .. key .. ">", function() M.navigate(key) end, { desc = desc })
+    local lhs = "<C-" .. key .. ">"
+    vim.keymap.set({ "n", "i", "v", "t" }, lhs, function() M.navigate(key) end, { desc = desc })
+    -- ctrl+j after an operator deletes lines, and on the command line runs it
+    vim.keymap.set("o", lhs, "<Esc>", { desc = desc })
+    vim.keymap.set("c", lhs, "<Nop>", { desc = desc })
   end
 end
 

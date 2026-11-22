@@ -74,7 +74,9 @@ Needs Neovim 0.10 or later. With [lazy.nvim](https://github.com/folke/lazy.nvim)
 { dir = "~/.local/share/rex-pane-nav", name = "rex-pane-nav", main = "rex-pane-nav", lazy = false, opts = {} }
 ```
 
-The plugin maps `ctrl+h/j/k/l` in normal and terminal mode, only inside Rex.
+The plugin maps `ctrl+h/j/k/l` in every mode, only inside Rex, so the key
+never edits text: it moves from insert and visual mode too, cancels a pending
+operator, and does nothing on the command line.
 It calls the `rex` CLI (from `$REX_BIN_DIR` or `PATH`) when there is no window
 in that direction.
 
