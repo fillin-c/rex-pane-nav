@@ -59,4 +59,26 @@ return function(test, eq, root)
     eq(c.lua("return vim.fn.maparg('<C-h>', 'n')"), "")
     c.close()
   end)
+
+  local FLOAT = "vim.api.nvim_open_win(vim.api.nvim_create_buf(false, true), true, { relative = 'editor', row = 1, col = 1, width = 20, height = 5 })"
+
+  test("in a floating terminal it stays in terminal mode", function()
+    local c = child()
+    c.lua(FLOAT .. "; vim.fn.termopen({ 'cat' })")
+    c.keys("i")
+    c.keys("<C-h>")
+    eq(c.mode(), "t")
+    eq(handoffs(0), {})
+    c.close()
+  end)
+
+  test("at the edge a terminal hands off and stays in terminal mode", function()
+    local c = child()
+    c.lua("vim.fn.termopen({ 'cat' })")
+    c.keys("i")
+    c.keys("<C-h>")
+    eq(c.mode(), "t")
+    eq(handoffs(1), { "--autostart=false do -s s1 -b b1 pane_nav_edge_left" })
+    c.close()
+  end)
 end

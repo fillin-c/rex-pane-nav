@@ -21,8 +21,7 @@ function M.setup()
   if (vim.env.REX_SESSION or "") == "" or (vim.env.REX_BLOCK or "") == "" then return end
   for key, dir in pairs(KEYS) do
     local desc = "Navigate " .. dir .. " through Neovim and Rex"
-    vim.keymap.set("n", "<C-" .. key .. ">", function() M.navigate(key) end, { desc = desc })
-    vim.keymap.set("t", "<C-" .. key .. ">", ("<C-\\><C-n><Cmd>lua require('rex-pane-nav').navigate('%s')<CR>"):format(key), { desc = desc })
+    vim.keymap.set({ "n", "t" }, "<C-" .. key .. ">", function() M.navigate(key) end, { desc = desc })
   end
 end
 

@@ -68,7 +68,7 @@ its own machine's config, so install it on every machine you use Rex from.
 
 ### Neovim
 
-With [lazy.nvim](https://github.com/folke/lazy.nvim), load the same copy:
+Needs Neovim 0.10 or later. With [lazy.nvim](https://github.com/folke/lazy.nvim), load the same copy:
 
 ```lua
 { dir = "~/.local/share/rex-pane-nav", name = "rex-pane-nav", main = "rex-pane-nav", lazy = false, opts = {} }
