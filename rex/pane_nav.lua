@@ -46,9 +46,8 @@ end
 local function client_ops(send)
   return {
     focus   = function(_, dir, wrap) send("pane.focus", { direction = dir, wrap = wrap }) end,
-    tab     = function(_, step) send(step > 0 and "client.tab.next" or "client.tab.previous", {}) end,
     session = function(_, step) send(step > 0 and "session.next" or "session.previous", {}) end,
-    select  = function(_, id) send("session.select", { session_id = id }) end,
+    select  = function(_, id, window_id) send("session.select", { session_id = id, window_id = window_id }) end,
   }
 end
 
@@ -66,27 +65,58 @@ local function owner_ops(ctx)
   end
   return {
     focus   = function(_, dir, wrap) rex.call("session.focus_direction", { session_id = ctx.session_id, direction = dir, wrap = wrap }) end,
-    tab     = function(_, step) rex.call(step > 0 and "session.focus_next_window" or "session.focus_previous_window", { session_id = ctx.session_id }) end,
     session = function() end,
-    select  = function() end,
+    select  = function(_, id, window_id)
+      if id == ctx.session_id and window_id then rex.call("session.focus_window", { session_id = id, window_id = window_id }) end
+    end,
   }
 end
 
-local function rex_json(bin, ...)
-  local r = rex.exec{ bin, ... }
+local ENTERS_FIRST = {
+  down  = function(a, b) return a[2] < b[2] or a[2] == b[2] and a[1] < b[1] end,
+  up    = function(a, b) return a[2] + a[4] > b[2] + b[4] or a[2] + a[4] == b[2] + b[4] and a[1] < b[1] end,
+  right = function(a, b) return a[1] < b[1] or a[1] == b[1] and a[2] < b[2] end,
+  left  = function(a, b) return a[1] + a[3] > b[1] + b[3] or a[1] + a[3] == b[1] + b[3] and a[2] < b[2] end,
+}
+
+-- The pane on the side of the window a move in dir comes in from, top-left first
+local function entry_block(w, dir)
+  local best
+  local function walk(node)
+    if not node then return end
+    if node.block_id then
+      if not best or ENTERS_FIRST[dir](node.rect, best.rect) then best = node end
+    elseif node.split then
+      walk(node.split.before)
+      walk(node.split.after)
+    end
+  end
+  for _, l in ipairs(w and w.layers or {}) do
+    if l.kind == "tiled" then walk(l.layout) end
+  end
+  return best and best.block_id
+end
+
+-- host nil is this Mac's server
+local function rex_json(bin, host, ...)
+  local argv = host and { bin, "-S", host, ... } or { bin, ... }
+  local r = rex.exec(argv)
   return r and r.ok and rex.json.decode(r.stdout) or nil
 end
 
 -- Sessions on the other hosts that can be reached, in sidebar order, or nil without the CLI.
 -- 300ms: the check waits this long on every crossing while a host is down
 local function remote_sessions(bin)
-  local c = rex_json(bin, "hosts", "check", "--json", "--timeout", "300ms")
+  local c = rex_json(bin, nil, "hosts", "check", "--json", "--timeout", "300ms")
   if not c then return nil end
   local out = {}
   for _, h in ipairs(c.hosts or {}) do
     if h.status == "reachable" then
-      local l = rex_json(bin, "-S", h.label, "api", "call", "session.list", "{}")
-      for _, s in ipairs(l and l.sessions or {}) do out[#out + 1] = s end
+      local l = rex_json(bin, h.label, "api", "call", "session.list", "{}")
+      for _, s in ipairs(l and l.sessions or {}) do
+        s.host = h.label
+        out[#out + 1] = s
+      end
     end
   end
   return out
@@ -101,18 +131,32 @@ local function move(ctx, dir, opts, ops)
   local v = rex.session.view{ session_id = ctx.session_id }
   local ws = v and v.windows or {}
   for n, w in ipairs(ws) do
-    if w.window_id == v.active_window_id and ws[n + step] then
-      return ops.tab(ctx, step)
+    local tw = ws[n + step]
+    if w.window_id == v.active_window_id and tw then
+      local b = entry_block(tw, dir)
+      if b then rex.session.focus_block{ session_id = ctx.session_id, block_id = b } end
+      return ops.select(ctx, ctx.session_id, tw.window_id)
     end
   end
   -- the app's session after this Mac's last one is on another host, which may be down
   local ss = (rex.call("session.list", {}) or {}).sessions or {}
   for n, s in ipairs(ss) do
-    if s.session_id == ctx.session_id and not ss[n + step] then
-      local rs = remote_sessions(opts.rex)
-      if not rs then break end
-      local t = rs[step > 0 and 1 or #rs] or ss[step > 0 and 1 or #ss]
-      return ops.select(ctx, t.session_id)
+    if s.session_id == ctx.session_id then
+      local t = ss[n + step]
+      if not t then
+        local rs = remote_sessions(opts.rex)
+        if not rs then break end
+        t = rs[step > 0 and 1 or #rs] or ss[step > 0 and 1 or #ss]
+      end
+      -- rex.session.view only sees the session the key came from
+      local tv = rex_json(opts.rex, t.host, "api", "call", "session.view", rex.json.encode{ session_id = t.session_id })
+      local tw = tv and tv.windows or {}
+      local w = tw[step > 0 and 1 or #tw]
+      local b = entry_block(w, dir)
+      if b then
+        rex_json(opts.rex, t.host, "api", "call", "session.focus_block", rex.json.encode{ session_id = t.session_id, block_id = b })
+      end
+      return ops.select(ctx, t.session_id, w and w.window_id)
     end
   end
   ops.session(ctx, step)

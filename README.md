@@ -8,8 +8,8 @@ Rex tabs with one set of keys: `shift+cmd+h/j/k/l` by default.
 - In any other pane (a shell, Claude Code, …), the key moves between Rex panes.
   `ctrl+h/j/k/l` stays untouched there.
 - At the outer edge along the tab bar, it moves to the next tab, and past the
-  last tab to the next session. A session on a host that can't be reached is
-  skipped: it wraps around this Mac's sessions instead.
+  last tab to the next session, landing on the pane at the side it comes in
+  from. Sessions on hosts that can't be reached are skipped.
 - In a floating Neovim window (lazygit, a picker), it does nothing until you
   close the float.
 
