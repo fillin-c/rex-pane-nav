@@ -8,7 +8,8 @@ Rex tabs with one set of keys: `shift+cmd+h/j/k/l` by default.
 - In any other pane (a shell, Claude Code, …), the key moves between Rex panes.
   `ctrl+h/j/k/l` stays untouched there.
 - At the outer edge along the tab bar, it moves to the next tab, and past the
-  last tab to the next session.
+  last tab to the next session. A session on a host that can't be reached is
+  skipped: it wraps around this Mac's sessions instead.
 - In a floating Neovim window (lazygit, a picker), it does nothing until you
   close the float.
 
@@ -45,11 +46,19 @@ dofile(os.getenv("HOME") .. "/.local/share/rex-pane-nav/rex/pane_nav.lua").setup
   mods = "shift+cmd",   -- modifiers for h/j/k/l
   tabs = "horizontal",  -- your tab bar: "horizontal", "vertical", or false to never leave the tab
   wrap = true,          -- wrap around panes inside a tab
+  rex = "rex",          -- the rex CLI, to skip hosts that can't be reached
 }
 ```
 
 Then `rex config reload`. `tabs` can also be a function returning one of those
 values, if you switch tab styles.
+
+The server Rex.app starts may not have `rex` on its PATH. To skip hosts that
+can't be reached, give its full path, on macOS:
+
+```lua
+rex = os.getenv("HOME") .. "/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex",
+```
 
 An app connected to another machine's server over Tailscale handles keys with
 its own machine's config, so install it on every machine you use Rex from.

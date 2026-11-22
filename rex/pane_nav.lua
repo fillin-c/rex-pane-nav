@@ -48,6 +48,7 @@ local function client_ops(send)
     focus   = function(_, dir, wrap) send("pane.focus", { direction = dir, wrap = wrap }) end,
     tab     = function(_, step) send(step > 0 and "client.tab.next" or "client.tab.previous", {}) end,
     session = function(_, step) send(step > 0 and "session.next" or "session.previous", {}) end,
+    select  = function(_, id) send("session.select", { session_id = id }) end,
   }
 end
 
@@ -67,7 +68,28 @@ local function owner_ops(ctx)
     focus   = function(_, dir, wrap) rex.call("session.focus_direction", { session_id = ctx.session_id, direction = dir, wrap = wrap }) end,
     tab     = function(_, step) rex.call(step > 0 and "session.focus_next_window" or "session.focus_previous_window", { session_id = ctx.session_id }) end,
     session = function() end,
+    select  = function() end,
   }
+end
+
+local function rex_json(bin, ...)
+  local r = rex.exec{ bin, ... }
+  return r and r.ok and rex.json.decode(r.stdout) or nil
+end
+
+-- Sessions on the other hosts that can be reached, in sidebar order, or nil without the CLI.
+-- 300ms: the check waits this long on every crossing while a host is down
+local function remote_sessions(bin)
+  local c = rex_json(bin, "hosts", "check", "--json", "--timeout", "300ms")
+  if not c then return nil end
+  local out = {}
+  for _, h in ipairs(c.hosts or {}) do
+    if h.status == "reachable" then
+      local l = rex_json(bin, "-S", h.label, "api", "call", "session.list", "{}")
+      for _, s in ipairs(l and l.sessions or {}) do out[#out + 1] = s end
+    end
+  end
+  return out
 end
 
 local function move(ctx, dir, opts, ops)
@@ -83,6 +105,16 @@ local function move(ctx, dir, opts, ops)
       return ops.tab(ctx, step)
     end
   end
+  -- the app's session after this Mac's last one is on another host, which may be down
+  local ss = (rex.call("session.list", {}) or {}).sessions or {}
+  for n, s in ipairs(ss) do
+    if s.session_id == ctx.session_id and not ss[n + step] then
+      local rs = remote_sessions(opts.rex)
+      if not rs then break end
+      local t = rs[step > 0 and 1 or #rs] or ss[step > 0 and 1 or #ss]
+      return ops.select(ctx, t.session_id)
+    end
+  end
   ops.session(ctx, step)
 end
 
@@ -90,11 +122,14 @@ end
 -- opts.tabs: "horizontal" | "vertical" | false, or a function returning one; at the
 --   outer edge along the tab bar, move to the next tab, then the next session
 -- opts.wrap: wrap around panes when not moving tabs, default true
+-- opts.rex: the rex CLI, used to skip sessions on hosts that can't be reached; default
+--   $REX_BIN_DIR/rex or rex, which the server Rex.app starts may not have on its PATH
 function M.setup(opts)
   opts = opts or {}
   local mods = opts.mods or "shift+cmd"
   opts.tabs = opts.tabs == nil and "horizontal" or opts.tabs
   opts.wrap = opts.wrap ~= false
+  opts.rex = opts.rex or (os.getenv("REX_BIN_DIR") and os.getenv("REX_BIN_DIR") .. "/rex") or "rex"
 
   for key, dir in pairs(KEYS) do
     rex.action{
