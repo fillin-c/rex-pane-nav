@@ -9,17 +9,34 @@ Rex tabs with one set of keys: `shift+cmd+h/j/k/l` by default.
   `ctrl+h/j/k/l` stays untouched there.
 - At the outer edge along the tab bar, it moves to the next tab, and past the
   last tab to the next session.
+- In a floating Neovim window (lazygit, a picker), it does nothing until you
+  close the float.
 
 Inspired by [vim-tmux-navigator](https://github.com/christoomey/vim-tmux-navigator)
 and [rex-navigator.nvim](https://github.com/baggiponte/rex-navigator.nvim).
 
 ## Install
 
-### Rex
+One copy of this repository serves both Rex and Neovim. Put it at
+`~/.local/share/rex-pane-nav` (any path works; change it below).
+
+With git:
 
 ```sh
 git clone https://github.com/fillin-c/rex-pane-nav ~/.local/share/rex-pane-nav
 ```
+
+Or with a Nix flake and home-manager:
+
+```nix
+# flake.nix
+inputs.rex-pane-nav = { url = "github:fillin-c/rex-pane-nav"; flake = false; };
+
+# home-manager module
+home.file.".local/share/rex-pane-nav".source = inputs.rex-pane-nav;
+```
+
+### Rex
 
 In `~/.config/rex/init.lua`:
 
@@ -34,12 +51,15 @@ dofile(os.getenv("HOME") .. "/.local/share/rex-pane-nav/rex/pane_nav.lua").setup
 Then `rex config reload`. `tabs` can also be a function returning one of those
 values, if you switch tab styles.
 
+An app connected to another machine's server over Tailscale handles keys with
+its own machine's config, so install it on every machine you use Rex from.
+
 ### Neovim
 
-With [lazy.nvim](https://github.com/folke/lazy.nvim):
+With [lazy.nvim](https://github.com/folke/lazy.nvim), load the same copy:
 
 ```lua
-{ "fillin-c/rex-pane-nav", main = "rex-pane-nav", lazy = false, opts = {} }
+{ dir = "~/.local/share/rex-pane-nav", name = "rex-pane-nav", main = "rex-pane-nav", lazy = false, opts = {} }
 ```
 
 The plugin maps `ctrl+h/j/k/l` in normal and terminal mode, only inside Rex.
@@ -54,6 +74,11 @@ for _, key in ipairs({ "h", "j", "k", "l" }) do
   vim.keymap.set("n", "<C-" .. key .. ">", function() require("rex-pane-nav").navigate(key) end)
 end
 ```
+
+### Update
+
+`git -C ~/.local/share/rex-pane-nav pull`, or `nix flake update rex-pane-nav`
+and switch. Then `rex config reload` and restart Neovim.
 
 ## License
 
