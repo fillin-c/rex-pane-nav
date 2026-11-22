@@ -14,6 +14,8 @@ Rex tabs with one set of keys: `shift+cmd+h/j/k/l` by default.
 - In a floating Neovim window (lazygit, a picker), it does nothing until you
   close the float.
 
+https://github.com/user-attachments/assets/44b4b6fa-6191-4742-993f-6f4bcc43bd94
+
 Inspired by [vim-tmux-navigator](https://github.com/christoomey/vim-tmux-navigator)
 and [rex-navigator.nvim](https://github.com/baggiponte/rex-navigator.nvim).
 
