@@ -25,11 +25,18 @@ local function find_rect(node, block_id)
   end
 end
 
-local function at_edge(ctx, dir)
-  local v = rex.session.view{ session_id = ctx.session_id }
+local function window_of(v, block_id)
   for _, w in ipairs(v and v.windows or {}) do
     for _, l in ipairs(w.layers or {}) do
-      local r = l.kind == "tiled" and find_rect(l.layout, ctx.block_id)
+      if l.kind == "tiled" and find_rect(l.layout, block_id) then return w end
+    end
+  end
+end
+
+local function at_edge(v, block_id, dir)
+  for _, w in ipairs(v and v.windows or {}) do
+    for _, l in ipairs(w.layers or {}) do
+      local r = l.kind == "tiled" and find_rect(l.layout, block_id)
       if r then
         local x, y, wd, ht = r[1], r[2], r[3], r[4]
         -- 1e-6: rects are normalized floats, so a pane on the edge can be off by rounding
@@ -122,52 +129,84 @@ local function remote_sessions(bin)
   return out
 end
 
+local function connected_client(bin, host, match)
+  for _, c in ipairs((rex_json(bin, host, "client", "ls", "--json") or {}).clients or {}) do
+    if c.connection_state == "connected" and match(c) then return c end
+  end
+end
+
+-- The app reaches each host through a client of its own there, under the same label
+local function select_via(bin, ctx, host, id, window_id)
+  local me = connected_client(bin, nil, function(c) return c.client_id == ctx.client_id end)
+  local label = me and me.info and me.info.label
+  local there = label and connected_client(bin, host, function(c) return c.info and c.info.label == label end)
+  if not there then return false end
+  return rex_json(bin, host, "api", "call", "client.perform", rex.json.encode{
+    client_id = there.client_id, action = "session.select", args = { session_id = id, window_id = window_id },
+  }) ~= nil
+end
+
 local function move(ctx, dir, opts, ops)
   local tabs = type(opts.tabs) == "function" and opts.tabs() or opts.tabs
   local step = TAB_STEP[tabs] and TAB_STEP[tabs][dir]
-  if not (step and at_edge(ctx, dir)) then
+  -- host nil is this Mac's server. A key in a session on another host sets ctx.server and
+  -- sends rex.call there; rex.session.view only sees the session the key came from
+  local function view(host, id)
+    if not host and id == ctx.session_id then return rex.session.view{ session_id = id } end
+    return rex_json(opts.rex, host, "api", "call", "session.view", rex.json.encode{ session_id = id })
+  end
+  local function enter(host, id, w)
+    local b = entry_block(w, dir)
+    if b and not host and id == ctx.session_id then
+      rex.session.focus_block{ session_id = id, block_id = b }
+    elseif b then
+      rex_json(opts.rex, host, "api", "call", "session.focus_block", rex.json.encode{ session_id = id, block_id = b })
+    end
+    if not host and not ctx.server then return ops.select(ctx, id, w and w.window_id) or true end
+    return select_via(opts.rex, ctx, host, id, w and w.window_id)
+  end
+
+  local v = view(ctx.server, ctx.session_id)
+  if not (step and at_edge(v, ctx.block_id, dir)) then
     return ops.focus(ctx, dir, opts.wrap)
   end
-  local v = rex.session.view{ session_id = ctx.session_id }
-  local ws = v and v.windows or {}
+  local ws = v.windows
+  -- not active_window_id: another host's server doesn't follow the tab this app shows
+  local cur = window_of(v, ctx.block_id)
   for n, w in ipairs(ws) do
-    local tw = ws[n + step]
-    if w.window_id == v.active_window_id and tw then
-      local b = entry_block(tw, dir)
-      if b then rex.session.focus_block{ session_id = ctx.session_id, block_id = b } end
-      return ops.select(ctx, ctx.session_id, tw.window_id)
+    if w == cur and ws[n + step] then
+      return enter(ctx.server, ctx.session_id, ws[n + step])
     end
   end
-  -- the app's session after this Mac's last one is on another host, which may be down
-  local ss = (rex.call("session.list", {}) or {}).sessions or {}
-  for n, s in ipairs(ss) do
-    if s.session_id == ctx.session_id then
-      local t = ss[n + step]
-      if not t then
-        local rs = remote_sessions(opts.rex)
-        if not rs then break end
-        t = rs[step > 0 and 1 or #rs] or ss[step > 0 and 1 or #ss]
-      end
-      -- rex.session.view only sees the session the key came from
-      local tv = rex_json(opts.rex, t.host, "api", "call", "session.view", rex.json.encode{ session_id = t.session_id })
-      local tw = tv and tv.windows or {}
-      local w = tw[step > 0 and 1 or #tw]
-      local b = entry_block(w, dir)
-      if b then
-        rex_json(opts.rex, t.host, "api", "call", "session.focus_block", rex.json.encode{ session_id = t.session_id, block_id = b })
-      end
-      return ops.select(ctx, t.session_id, w and w.window_id)
+
+  local mine
+  if ctx.server then mine = rex_json(opts.rex, nil, "api", "call", "session.list", "{}") else mine = rex.call("session.list", {}) end
+  local all = (mine or {}).sessions or {}
+  local here
+  for n, s in ipairs(all) do
+    if not ctx.server and s.session_id == ctx.session_id then here = n end
+  end
+  if not (here and all[here + step]) then
+    local rs = remote_sessions(opts.rex)
+    if not rs then return ops.session(ctx, step) end
+    for _, s in ipairs(rs) do
+      all[#all + 1] = s
+      if s.host == ctx.server and s.session_id == ctx.session_id then here = #all end
     end
   end
-  ops.session(ctx, step)
+  if not here then return ops.session(ctx, step) end
+  local t = all[here + step] or all[step > 0 and 1 or #all]
+  local tw = (view(t.host, t.session_id) or {}).windows or {}
+  if not enter(t.host, t.session_id, tw[step > 0 and 1 or #tw]) then ops.session(ctx, step) end
 end
 
 -- opts.mods: modifiers for h/j/k/l, default "shift+cmd"
 -- opts.tabs: "horizontal" | "vertical" | false, or a function returning one; at the
 --   outer edge along the tab bar, move to the next tab, then the next session
 -- opts.wrap: wrap around panes when not moving tabs, default true
--- opts.rex: the rex CLI, used to skip sessions on hosts that can't be reached; default
---   $REX_BIN_DIR/rex or rex, which the server Rex.app starts may not have on its PATH
+-- opts.rex: the rex CLI, used to move across sessions on other hosts and skip the ones that
+--   can't be reached; default $REX_BIN_DIR/rex or rex, which the server Rex.app starts may
+--   not have on its PATH
 function M.setup(opts)
   opts = opts or {}
   local mods = opts.mods or "shift+cmd"
