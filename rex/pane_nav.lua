@@ -53,6 +53,7 @@ end
 local function client_ops(send)
   return {
     focus   = function(_, dir, wrap) send("pane.focus", { direction = dir, wrap = wrap }) end,
+    split   = function(_, dir) send("pane.split", { direction = dir }) end,
     session = function(_, step) send(step > 0 and "session.next" or "session.previous", {}) end,
     select  = function(_, id, window_id) send("session.select", { session_id = id, window_id = window_id }) end,
   }
@@ -72,6 +73,14 @@ local function owner_ops(ctx)
   end
   return {
     focus   = function(_, dir, wrap) rex.call("session.focus_direction", { session_id = ctx.session_id, direction = dir, wrap = wrap }) end,
+    split   = function(_, dir)
+      rex.call("session.new_split", {
+        session_id = ctx.session_id, anchor_id = ctx.block_id, focus = true,
+        direction = (dir == "left" or dir == "right") and "horizontal" or "vertical",
+        side = (dir == "left" or dir == "up") and "before" or "after",
+        layout = { block = { flavor = "com.superlogical.terminal.shell" } },
+      })
+    end,
     session = function() end,
     select  = function(_, id, window_id)
       if id == ctx.session_id and window_id then rex.call("session.focus_window", { session_id = id, window_id = window_id }) end
@@ -86,13 +95,12 @@ local ENTERS_FIRST = {
   left  = function(a, b) return a[1] + a[3] > b[1] + b[3] or a[1] + a[3] == b[1] + b[3] and a[2] < b[2] end,
 }
 
--- The pane on the side of the window a move in dir comes in from, top-left first
-local function entry_block(w, dir)
-  local best
+local function panes(w)
+  local out = {}
   local function walk(node)
     if not node then return end
     if node.block_id then
-      if not best or ENTERS_FIRST[dir](node.rect, best.rect) then best = node end
+      out[#out + 1] = node
     elseif node.split then
       walk(node.split.before)
       walk(node.split.after)
@@ -101,7 +109,49 @@ local function entry_block(w, dir)
   for _, l in ipairs(w and w.layers or {}) do
     if l.kind == "tiled" then walk(l.layout) end
   end
+  return out
+end
+
+local OPPOSITE = { left = "right", right = "left", up = "down", down = "up" }
+
+-- The pane on the side of the window a move in dir comes in from: the one the tab last
+-- had focused if it is on that side, or else the top-left one
+local function entry_block(w, dir)
+  local f = w and w.focused_block_id
+  if f and at_edge({ windows = { w } }, f, OPPOSITE[dir]) then return f end
+  local best
+  for _, p in ipairs(panes(w)) do
+    if not best or ENTERS_FIRST[dir](p.rect, best.rect) then best = p end
+  end
   return best and best.block_id
+end
+
+-- When each pane was last left with these keys
+local LEFT_AT, clock = {}, 0
+
+local AXIS = { left = { 1, -1 }, right = { 1, 1 }, up = { 2, -1 }, down = { 2, 1 } }
+
+-- Of the panes that touch block_id's side in dir, the one left most recently, if any was
+local function last_left(w, block_id, dir)
+  local a, s = AXIS[dir][1], AXIS[dir][2]
+  local c = 3 - a
+  local ps, r = panes(w), nil
+  for _, p in ipairs(ps) do
+    if p.block_id == block_id then r = p.rect end
+  end
+  if not r then return nil end
+  local edge = s > 0 and r[a] + r[a + 2] or r[a]
+  local best
+  for _, p in ipairs(ps) do
+    local q = p.rect
+    local near = s > 0 and q[a] or q[a] + q[a + 2]
+    if math.abs(near - edge) < 1e-6
+      and q[c] < r[c] + r[c + 2] - 1e-6 and q[c] + q[c + 2] > r[c] + 1e-6
+      and (LEFT_AT[p.block_id] or 0) > (best and LEFT_AT[best] or 0) then
+      best = p.block_id
+    end
+  end
+  return best
 end
 
 -- host nil is this Mac's server
@@ -181,8 +231,15 @@ local function move(ctx, dir, opts, ops)
     return select_via(host, id, w and w.window_id)
   end
 
+  clock = clock + 1
+  LEFT_AT[ctx.block_id] = clock
+
   local v = call(ctx.server, "session.view", { session_id = ctx.session_id })
-  if not (step and at_edge(v, ctx.block_id, dir)) then
+  local edge = at_edge(v, ctx.block_id, dir)
+  if edge and not step and opts.split then return ops.split(ctx, dir) end
+  if not (step and edge) then
+    local b = not edge and last_left(window_of(v, ctx.block_id), ctx.block_id, dir)
+    if b then return call(ctx.server, "session.focus_block", { session_id = ctx.session_id, block_id = b }) end
     return ops.focus(ctx, dir, opts.wrap)
   end
   local ws = v.windows
@@ -219,6 +276,8 @@ end
 -- opts.tabs: "horizontal" | "vertical" | false, or a function returning one; at the
 --   outer edge along the tab bar, move to the next tab, then the next session
 -- opts.wrap: wrap around panes when not moving tabs, default true
+-- opts.split: at an outer edge that doesn't lead to a tab, split a new pane that way
+--   instead of wrapping, default false
 -- opts.rex: the rex CLI, used to move across sessions on other hosts and skip the ones that
 --   can't be reached; default $REX_BIN_DIR/rex or rex, which the server Rex.app starts may
 --   not have on its PATH

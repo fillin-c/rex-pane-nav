@@ -5,6 +5,8 @@ Neovim windows with one set of keys: `shift+cmd+h/j/k/l` by default.
 
 - In a pane (a shell, Claude Code, …), the key moves between Rex panes.
   `ctrl+h/j/k/l` stays untouched there.
+  Moving back across a split returns to the pane you came from, not the
+  top-left one.
 - At the outer edge along the tab bar, it moves to the next tab, and past the
   last tab to the next session, landing on the pane at the side it comes in
   from. After this Mac's sessions come those of your other hosts; hosts that
@@ -49,6 +51,7 @@ dofile(os.getenv("HOME") .. "/.local/share/rex-pane-nav/rex/pane_nav.lua").setup
   mods = "shift+cmd",   -- modifiers for h/j/k/l
   tabs = "horizontal",  -- your tab bar: "horizontal", "vertical", or false to never leave the tab
   wrap = true,          -- wrap around panes inside a tab
+  split = false,        -- at an edge that doesn't lead to a tab, split a new pane that way instead of wrapping
   rex = "rex",          -- the rex CLI, to skip hosts that can't be reached
 }
 ```

@@ -7,6 +7,11 @@ return function(test, eq, root)
   local VIEWS = {
     s1 = { windows = { tab("w1", halves("b1", "b2")), tab("w2", halves("b3", "b4")) } },
     s2 = { windows = { tab("w3", pane("b5", 0, 1)) } },
+    -- b6 on the left, b7 over b8 on the right
+    s3 = { windows = { tab("w4", { split = { before = pane("b6", 0, 0.5), after = { split = {
+      before = { block_id = "b7", rect = { 0.5, 0, 0.5, 0.5 } },
+      after = { block_id = "b8", rect = { 0.5, 0.5, 0.5, 0.5 } },
+    } } } }) } },
   }
 
   -- Loads rex/pane_nav.lua against a fake rex global and presses an action.
@@ -67,6 +72,19 @@ return function(test, eq, root)
     eq(load().press("pane_nav_up", "b1"), { { "pane.focus", { direction = "up", wrap = true } } })
   end)
 
+  test("back across a split it returns to the pane it came from", function()
+    local env = load()
+    eq(env.press("pane_nav_left", "b8", "s3"), { { "pane.focus", { direction = "left", wrap = true } } })
+    eq(env.press("pane_nav_right", "b6", "s3"), {})
+    eq(env.calls[#env.calls], { "session.focus_block", { session_id = "s3", block_id = "b8" } })
+  end)
+
+  test("split = true splits at an edge that doesn't lead to a tab", function()
+    local env = load({ opts = { split = true, tabs = "vertical" } })
+    eq(env.press("pane_nav_right", "b5", "s2"), { { "pane.split", { direction = "right" } } })
+    eq(env.press("pane_nav_left", "b2"), { { "pane.focus", { direction = "left", wrap = true } } })
+  end)
+
   test("tabs = false never leaves the tab", function()
     eq(load({ opts = { tabs = false } }).press("pane_nav_right", "b2"), { { "pane.focus", { direction = "right", wrap = true } } })
   end)
@@ -81,6 +99,17 @@ return function(test, eq, root)
     local env = load()
     eq(env.press("pane_nav_left", "b3"), { { "session.select", { session_id = "s1", window_id = "w1" } } })
     eq(env.calls[#env.calls], { "session.focus_block", { session_id = "s1", block_id = "b2" } })
+  end)
+
+  test("entering a tab it returns to the pane the tab last had focused on that side", function()
+    VIEWS.s1.windows[2].focused_block_id = "b4"
+    local env = load({ opts = { tabs = "vertical" } })
+    env.press("pane_nav_down", "b2")
+    eq(env.calls[#env.calls], { "session.focus_block", { session_id = "s1", block_id = "b4" } })
+    env = load()
+    env.press("pane_nav_right", "b2")
+    eq(env.calls[#env.calls], { "session.focus_block", { session_id = "s1", block_id = "b3" } })
+    VIEWS.s1.windows[2].focused_block_id = nil
   end)
 
   test("past the last tab it enters the next session", function()
